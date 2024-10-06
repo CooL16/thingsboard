@@ -102,6 +102,7 @@ export class TemplateNotificationDialogComponent
       this.notificationTemplateConfigurationForm.patchValue({
         deliveryMethodsTemplates: this.templateNotification.configuration.deliveryMethodsTemplates
       }, {emitEvent: false});
+      this.deliveryConfiguration = this.templateNotificationForm.get('configuration.deliveryMethodsTemplates').value;
     }
   }
 
@@ -178,7 +179,8 @@ export class TemplateNotificationDialogComponent
       NotificationType.ENTITIES_LIMIT,
       NotificationType.API_USAGE_LIMIT,
       NotificationType.NEW_PLATFORM_VERSION,
-      NotificationType.RATE_LIMITS
+      NotificationType.RATE_LIMITS,
+      NotificationType.TASK_PROCESSING_FAILURE
     ]);
 
     if (this.isSysAdmin()) {

@@ -72,6 +72,10 @@ public interface DashboardService extends EntityDaoService {
 
     DashboardInfo findFirstDashboardInfoByTenantIdAndName(TenantId tenantId, String name);
 
+    ListenableFuture<DashboardInfo> findFirstDashboardInfoByTenantIdAndNameAsync(TenantId tenantId, String name);
+
     List<Dashboard> findTenantDashboardsByTitle(TenantId tenantId, String title);
+
+    boolean existsById(TenantId tenantId, DashboardId dashboardId);
 
 }

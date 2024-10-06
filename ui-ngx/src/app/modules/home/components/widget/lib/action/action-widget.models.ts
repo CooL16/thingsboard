@@ -23,7 +23,7 @@ import {
   telemetryTypeTranslationsShort
 } from '@shared/models/telemetry/telemetry.models';
 import { WidgetContext } from '@home/models/widget-component.models';
-import { BehaviorSubject, forkJoin, Observable, Observer, of, throwError } from 'rxjs';
+import { BehaviorSubject, forkJoin, Observable, Observer, of, Subscription, throwError } from 'rxjs';
 import { catchError, delay, map, share, take } from 'rxjs/operators';
 import { UtilsService } from '@core/services/utils.service';
 import { AfterViewInit, ChangeDetectorRef, Directive, Input, OnDestroy, OnInit, TemplateRef } from '@angular/core';
@@ -45,6 +45,7 @@ import {
 import { ValueType } from '@shared/models/constants';
 import { EntityType, entityTypeTranslations } from '@shared/models/entity-type.models';
 import { EntityId } from '@shared/models/id/entity-id';
+import { isDefinedAndNotNull } from '@core/utils';
 
 @Directive()
 // eslint-disable-next-line @angular-eslint/directive-class-suffix
@@ -117,14 +118,16 @@ export abstract class BasicActionWidgetComponent implements OnInit, OnDestroy, A
         }
       }
     };
-    const valueGetter = ValueGetter.fromSettings(this.ctx, getValueSettings, valueType, observer);
+    const simulated = this.ctx.utilsService.widgetEditMode || this.ctx.isPreview;
+    const valueGetter = ValueGetter.fromSettings(this.ctx, getValueSettings, valueType, observer, simulated);
     this.valueGetters.push(valueGetter);
     this.valueActions.push(valueGetter);
     return valueGetter;
   }
 
   protected createValueSetter<V>(setValueSettings: SetValueSettings): ValueSetter<V> {
-    const valueSetter = ValueSetter.fromSettings<V>(this.ctx, setValueSettings);
+    const simulated = this.ctx.utilsService.widgetEditMode || this.ctx.isPreview;
+    const valueSetter = ValueSetter.fromSettings<V>(this.ctx, setValueSettings, simulated);
     this.valueActions.push(valueSetter);
     return valueSetter;
   }
@@ -186,8 +189,14 @@ export class DataToValueConverter<V> {
       case DataToValueType.FUNCTION:
         result = data;
         try {
-          result = this.dataToValueFunction(!!data ? JSON.parse(data) : data);
-        } catch (e) {}
+          let input = data;
+          if (!!data) {
+            try {
+              input = JSON.parse(data);
+            } catch (_e) {}
+          }
+          result = this.dataToValueFunction(input);
+        } catch (_e) {}
         break;
       case DataToValueType.NONE:
         result = data;
@@ -223,35 +232,39 @@ export abstract class ValueGetter<V> extends ValueAction {
   static fromSettings<V>(ctx: WidgetContext,
                          settings: GetValueSettings<V>,
                          valueType: ValueType,
-                         valueObserver: Partial<Observer<V>>): ValueGetter<V> {
+                         valueObserver: Partial<Observer<V>>,
+                         simulated: boolean): ValueGetter<V> {
     switch (settings.action) {
       case GetValueAction.DO_NOTHING:
-        return new DefaultValueGetter<V>(ctx, settings, valueType, valueObserver);
+        return new DefaultValueGetter<V>(ctx, settings, valueType, valueObserver, simulated);
       case GetValueAction.EXECUTE_RPC:
-        return new ExecuteRpcValueGetter<V>(ctx, settings, valueType, valueObserver);
+        return new ExecuteRpcValueGetter<V>(ctx, settings, valueType, valueObserver, simulated);
       case GetValueAction.GET_ATTRIBUTE:
-        return new AttributeValueGetter<V>(ctx, settings, valueType, valueObserver);
+        return new AttributeValueGetter<V>(ctx, settings, valueType, valueObserver, simulated);
       case GetValueAction.GET_TIME_SERIES:
-        return new TimeSeriesValueGetter<V>(ctx, settings, valueType, valueObserver);
+        return new TimeSeriesValueGetter<V>(ctx, settings, valueType, valueObserver, simulated);
+      case GetValueAction.GET_DASHBOARD_STATE:
+        return new DashboardStateGetter<V>(ctx, settings, valueType, valueObserver, simulated);
     }
   }
 
-  private readonly isSimulated: boolean;
   private readonly dataConverter: DataToValueConverter<V>;
+
+  private getValueSubscription: Subscription;
 
   protected constructor(protected ctx: WidgetContext,
                         protected settings: GetValueSettings<V>,
                         protected valueType: ValueType,
-                        protected valueObserver: Partial<Observer<V>>) {
+                        protected valueObserver: Partial<Observer<V>>,
+                        protected simulated: boolean) {
     super(ctx, settings);
-    this.isSimulated = this.ctx.$injector.get(UtilsService).widgetEditMode;
     if (this.settings.action !== GetValueAction.DO_NOTHING) {
       this.dataConverter = new DataToValueConverter<V>(settings.dataToValue, valueType);
     }
   }
 
   getValue(): Observable<V> {
-    const valueObservable: Observable<V> = (this.isSimulated ? of(null).pipe(delay(500)) : this.doGetValue()).pipe(
+    const valueObservable: Observable<V> = this.doGetValue().pipe(
       map((data) => {
         if (this.dataConverter) {
           return this.dataConverter.dataToValue(data);
@@ -263,7 +276,10 @@ export abstract class ValueGetter<V> extends ValueAction {
         throw this.handleError(err);
       })
     );
-    valueObservable.subscribe({
+    if (this.getValueSubscription) {
+      this.getValueSubscription.unsubscribe();
+    }
+    this.getValueSubscription = valueObservable.subscribe({
       next: (value) => {
         this.valueObserver.next(value);
       },
@@ -277,6 +293,9 @@ export abstract class ValueGetter<V> extends ValueAction {
   }
 
   destroy() {
+    if (this.getValueSubscription) {
+      this.getValueSubscription.unsubscribe();
+    }
     super.destroy();
   }
 
@@ -330,29 +349,29 @@ export class ValueToDataConverter<V> {
 export abstract class ValueSetter<V> extends ValueAction {
 
   static fromSettings<V>(ctx: WidgetContext,
-                         settings: SetValueSettings): ValueSetter<V> {
+                         settings: SetValueSettings,
+                         simulated: boolean): ValueSetter<V> {
     switch (settings.action) {
       case SetValueAction.EXECUTE_RPC:
-        return new ExecuteRpcValueSetter<V>(ctx, settings);
+        return new ExecuteRpcValueSetter<V>(ctx, settings, simulated);
       case SetValueAction.SET_ATTRIBUTE:
-        return new AttributeValueSetter<V>(ctx, settings);
+        return new AttributeValueSetter<V>(ctx, settings, simulated);
       case SetValueAction.ADD_TIME_SERIES:
-        return new TimeSeriesValueSetter<V>(ctx, settings);
+        return new TimeSeriesValueSetter<V>(ctx, settings, simulated);
     }
   }
 
-  private readonly isSimulated: boolean;
   private readonly valueToDataConverter: ValueToDataConverter<V>;
 
   protected constructor(protected ctx: WidgetContext,
-                        protected settings: SetValueSettings) {
+                        protected settings: SetValueSettings,
+                        protected simulated: boolean) {
     super(ctx, settings);
-    this.isSimulated = this.ctx.$injector.get(UtilsService).widgetEditMode;
     this.valueToDataConverter = new ValueToDataConverter<V>(settings.valueToData);
   }
 
   setValue(value: V): Observable<any> {
-    if (this.isSimulated) {
+    if (this.simulated) {
       return of(null).pipe(delay(500));
     } else {
       return this.doSetValue(this.valueToDataConverter.valueToData(value)).pipe(
@@ -373,8 +392,9 @@ export class DefaultValueGetter<V> extends ValueGetter<V> {
   constructor(protected ctx: WidgetContext,
               protected settings: GetValueSettings<V>,
               protected valueType: ValueType,
-              protected valueObserver: Partial<Observer<V>>) {
-    super(ctx, settings, valueType, valueObserver);
+              protected valueObserver: Partial<Observer<V>>,
+              protected simulated: boolean) {
+    super(ctx, settings, valueType, valueObserver, simulated);
     this.defaultValue = settings.defaultValue;
   }
 
@@ -390,20 +410,26 @@ export class ExecuteRpcValueGetter<V> extends ValueGetter<V> {
   constructor(protected ctx: WidgetContext,
               protected settings: GetValueSettings<V>,
               protected valueType: ValueType,
-              protected valueObserver: Partial<Observer<V>>) {
-    super(ctx, settings, valueType, valueObserver);
+              protected valueObserver: Partial<Observer<V>>,
+              protected simulated: boolean) {
+    super(ctx, settings, valueType, valueObserver, simulated);
     this.executeRpcSettings = settings.executeRpc;
   }
 
   protected doGetValue(): Observable<V> {
-    return this.ctx.controlApi.sendTwoWayCommand(this.executeRpcSettings.method, null,
-      this.executeRpcSettings.requestTimeout,
-      this.executeRpcSettings.requestPersistent,
-      this.executeRpcSettings.persistentPollingInterval).pipe(
+    if (this.simulated) {
+      const defaultValue = isDefinedAndNotNull(this.settings.defaultValue) ? this.settings.defaultValue : null;
+      return of(defaultValue).pipe(delay(500));
+    } else {
+      return this.ctx.controlApi.sendTwoWayCommand(this.executeRpcSettings.method, null,
+        this.executeRpcSettings.requestTimeout,
+        this.executeRpcSettings.requestPersistent,
+        this.executeRpcSettings.persistentPollingInterval).pipe(
         catchError((err) => {
           throw handleRpcError(this.ctx, err);
         })
-    );
+      );
+    }
   }
 }
 
@@ -415,24 +441,30 @@ export abstract class TelemetryValueGetter<V, S extends TelemetryValueSettings> 
   protected constructor(protected ctx: WidgetContext,
                         protected settings: GetValueSettings<V>,
                         protected valueType: ValueType,
-                        protected valueObserver: Partial<Observer<V>>) {
-    super(ctx, settings, valueType, valueObserver);
+                        protected valueObserver: Partial<Observer<V>>,
+                        protected simulated: boolean) {
+    super(ctx, settings, valueType, valueObserver, simulated);
     const entityInfo = this.ctx.defaultSubscription.getFirstEntityInfo();
     this.targetEntityId = entityInfo?.entityId;
   }
 
   protected doGetValue(): Observable<V> {
-    if (!this.targetEntityId && !this.ctx.defaultSubscription.rpcEnabled) {
-      return throwError(() => new Error(this.ctx.translate.instant('widgets.value-action.error.target-entity-is-not-set')));
-    }
-    if (this.targetEntityId) {
-      const err = validateAttributeScope(this.ctx, this.targetEntityId, this.scope());
-      if (err) {
-        return throwError(() => err);
-      }
-      return this.subscribeForTelemetryValue();
+    if (this.simulated) {
+      const defaultValue = isDefinedAndNotNull(this.settings.defaultValue) ? this.settings.defaultValue : null;
+      return of(defaultValue).pipe(delay(100));
     } else {
-      return of(null);
+      if (!this.targetEntityId && !this.ctx.defaultSubscription.rpcEnabled) {
+        return throwError(() => new Error(this.ctx.translate.instant('widgets.value-action.error.target-entity-is-not-set')));
+      }
+      if (this.targetEntityId) {
+        const err = validateAttributeScope(this.ctx, this.targetEntityId, this.scope());
+        if (err) {
+          return throwError(() => err);
+        }
+        return this.subscribeForTelemetryValue();
+      } else {
+        return of(null);
+      }
     }
   }
 
@@ -476,8 +508,9 @@ export class AttributeValueGetter<V> extends TelemetryValueGetter<V, GetAttribut
   constructor(protected ctx: WidgetContext,
               protected settings: GetValueSettings<V>,
               protected valueType: ValueType,
-              protected valueObserver: Partial<Observer<V>>) {
-    super(ctx, settings, valueType, valueObserver);
+              protected valueObserver: Partial<Observer<V>>,
+              protected simulated: boolean) {
+    super(ctx, settings, valueType, valueObserver, simulated);
   }
 
   protected getTelemetryValueSettings(): GetAttributeValueSettings {
@@ -495,12 +528,31 @@ export class TimeSeriesValueGetter<V> extends TelemetryValueGetter<V, TelemetryV
   constructor(protected ctx: WidgetContext,
               protected settings: GetValueSettings<V>,
               protected valueType: ValueType,
-              protected valueObserver: Partial<Observer<V>>) {
-    super(ctx, settings, valueType, valueObserver);
+              protected valueObserver: Partial<Observer<V>>,
+              protected simulated: boolean) {
+    super(ctx, settings, valueType, valueObserver, simulated);
   }
 
   protected getTelemetryValueSettings(): TelemetryValueSettings {
     return this.settings.getTimeSeries;
+  }
+}
+
+export class DashboardStateGetter<V> extends ValueGetter<V> {
+  constructor(protected ctx: WidgetContext,
+              protected settings: GetValueSettings<V>,
+              protected valueType: ValueType,
+              protected valueObserver: Partial<Observer<V>>,
+              protected simulated: boolean) {
+    super(ctx, settings, valueType, valueObserver, simulated);
+  }
+
+  protected doGetValue(): Observable<string> {
+    if (this.simulated) {
+      return of('default');
+    } else {
+      return this.ctx.stateController.dashboardCtrl.dashboardCtx.stateId;
+    }
   }
 }
 
@@ -509,8 +561,9 @@ export class ExecuteRpcValueSetter<V> extends ValueSetter<V> {
   private readonly executeRpcSettings: RpcSettings;
 
   constructor(protected ctx: WidgetContext,
-              protected settings: SetValueSettings) {
-    super(ctx, settings);
+              protected settings: SetValueSettings,
+              protected simulated: boolean) {
+    super(ctx, settings, simulated);
     this.executeRpcSettings = settings.executeRpc;
   }
 
@@ -531,8 +584,9 @@ export abstract class TelemetryValueSetter<V> extends ValueSetter<V> {
   protected targetEntityId: EntityId;
 
   protected constructor(protected ctx: WidgetContext,
-                        protected settings: SetValueSettings) {
-    super(ctx, settings);
+                        protected settings: SetValueSettings,
+                        protected simulated: boolean) {
+    super(ctx, settings, simulated);
     const entityInfo = this.ctx.defaultSubscription.getFirstEntityInfo();
     this.targetEntityId = entityInfo?.entityId;
   }
@@ -565,8 +619,9 @@ export class AttributeValueSetter<V> extends TelemetryValueSetter<V> {
   private readonly setAttributeValueSettings:  SetAttributeValueSettings;
 
   constructor(protected ctx: WidgetContext,
-              protected settings: SetValueSettings) {
-    super(ctx, settings);
+              protected settings: SetValueSettings,
+              protected simulated: boolean) {
+    super(ctx, settings, simulated);
     this.setAttributeValueSettings = settings.setAttribute;
   }
 
@@ -587,8 +642,9 @@ export class TimeSeriesValueSetter<V> extends TelemetryValueSetter<V> {
   private readonly putTimeSeriesValueSettings:  TelemetryValueSettings;
 
   constructor(protected ctx: WidgetContext,
-              protected settings: SetValueSettings) {
-    super(ctx, settings);
+              protected settings: SetValueSettings,
+              protected simulated: boolean) {
+    super(ctx, settings, simulated);
     this.putTimeSeriesValueSettings = settings.putTimeSeries;
   }
 

@@ -57,7 +57,6 @@ import {
 } from '@shared/models/widget-settings.models';
 import { WidgetComponent } from '@home/components/widget/widget.component';
 import { formatValue, isDefinedAndNotNull, isNumeric, isUndefinedOrNull } from '@core/utils';
-import { ResizeObserver } from '@juggle/resize-observer';
 import { Element, G, Svg, SVG } from '@svgdotjs/svg.js';
 import {
   signalBarActive,
@@ -125,6 +124,7 @@ export class SignalStrengthWidgetComponent implements OnInit, OnDestroy, AfterVi
 
   backgroundStyle$: Observable<ComponentStyle>;
   overlayStyle: ComponentStyle = {};
+  padding: string;
 
   shapeResize$: ResizeObserver;
 
@@ -157,7 +157,6 @@ export class SignalStrengthWidgetComponent implements OnInit, OnDestroy, AfterVi
   ngOnInit(): void {
     this.ctx.$scope.signalStrengthWidget = this;
     this.settings = {...signalStrengthDefaultSettings, ...this.ctx.settings};
-
     this.layout = this.settings.layout;
 
     this.showDate = this.settings.showDate;
@@ -209,6 +208,7 @@ export class SignalStrengthWidgetComponent implements OnInit, OnDestroy, AfterVi
 
     this.backgroundStyle$ = backgroundStyle(this.settings.background, this.imagePipe, this.sanitizer);
     this.overlayStyle = overlayStyle(this.settings.background.overlay);
+    this.padding = this.settings.background.overlay.enabled ? undefined : this.settings.padding;
 
     this.hasCardClickAction = this.ctx.actionsApi.getActionDescriptors('cardClick').length > 0;
   }
@@ -262,7 +262,7 @@ export class SignalStrengthWidgetComponent implements OnInit, OnDestroy, AfterVi
       }
     }
 
-    this.noSignal = this.rssi <= -100;
+    this.noSignal = this.rssi <= this.settings.noSignalRssiValue;
 
     this.activeBarsColor.update(this.rssi);
 
@@ -404,5 +404,4 @@ export class SignalStrengthWidgetComponent implements OnInit, OnDestroy, AfterVi
       this.renderer.setStyle(this.signalStrengthTooltip.nativeElement, 'transform', `scale(${scale})`);
     }
   }
-
 }

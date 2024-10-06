@@ -41,6 +41,7 @@ export interface ToggleButtonWidgetSettings {
   checkedAppearance: WidgetButtonAppearance;
   uncheckedAppearance: WidgetButtonAppearance;
   background: BackgroundSettings;
+  padding: string;
 }
 
 export const toggleButtonDefaultSettings: ToggleButtonWidgetSettings = {
@@ -92,7 +93,7 @@ export const toggleButtonDefaultSettings: ToggleButtonWidgetSettings = {
     },
     setAttribute: {
       key: 'state',
-      scope: AttributeScope.SHARED_SCOPE
+      scope: AttributeScope.SERVER_SCOPE
     },
     putTimeSeries: {
       key: 'state'
@@ -113,7 +114,7 @@ export const toggleButtonDefaultSettings: ToggleButtonWidgetSettings = {
     },
     setAttribute: {
       key: 'state',
-      scope: AttributeScope.SHARED_SCOPE
+      scope: AttributeScope.SERVER_SCOPE
     },
     putTimeSeries: {
       key: 'state'
@@ -139,5 +140,6 @@ export const toggleButtonDefaultSettings: ToggleButtonWidgetSettings = {
       color: 'rgba(255,255,255,0.72)',
       blur: 3
     }
-  }
+  },
+  padding: '12px'
 };

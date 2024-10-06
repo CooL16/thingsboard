@@ -80,6 +80,7 @@ export interface SingleSwitchWidgetSettings {
   offLabelFont: Font;
   offLabelColor: string;
   background: BackgroundSettings;
+  padding: string;
 }
 
 export const singleSwitchDefaultSettings: SingleSwitchWidgetSettings = {
@@ -131,7 +132,7 @@ export const singleSwitchDefaultSettings: SingleSwitchWidgetSettings = {
     },
     setAttribute: {
       key: 'state',
-      scope: AttributeScope.SHARED_SCOPE
+      scope: AttributeScope.SERVER_SCOPE
     },
     putTimeSeries: {
       key: 'state'
@@ -152,7 +153,7 @@ export const singleSwitchDefaultSettings: SingleSwitchWidgetSettings = {
     },
     setAttribute: {
       key: 'state',
-      scope: AttributeScope.SHARED_SCOPE
+      scope: AttributeScope.SERVER_SCOPE
     },
     putTimeSeries: {
       key: 'state'
@@ -217,5 +218,6 @@ export const singleSwitchDefaultSettings: SingleSwitchWidgetSettings = {
       color: 'rgba(255,255,255,0.72)',
       blur: 3
     }
-  }
+  },
+  padding: ''
 };

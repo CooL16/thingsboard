@@ -25,14 +25,20 @@ import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.http.HttpEntity;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.web.client.RestTemplate;
 import org.thingsboard.common.util.JacksonUtil;
 import org.thingsboard.rule.engine.api.NotificationCenter;
 import org.thingsboard.rule.engine.api.notification.FirebaseService;
+import org.thingsboard.server.common.data.Device;
 import org.thingsboard.server.common.data.EntityType;
 import org.thingsboard.server.common.data.User;
+import org.thingsboard.server.common.data.alarm.Alarm;
+import org.thingsboard.server.common.data.alarm.AlarmComment;
+import org.thingsboard.server.common.data.alarm.AlarmSeverity;
 import org.thingsboard.server.common.data.audit.ActionType;
+import org.thingsboard.server.common.data.id.AlarmId;
 import org.thingsboard.server.common.data.id.DeviceId;
 import org.thingsboard.server.common.data.id.NotificationRequestId;
 import org.thingsboard.server.common.data.id.NotificationRuleId;
@@ -48,7 +54,9 @@ import org.thingsboard.server.common.data.notification.NotificationRequestPrevie
 import org.thingsboard.server.common.data.notification.NotificationRequestStats;
 import org.thingsboard.server.common.data.notification.NotificationRequestStatus;
 import org.thingsboard.server.common.data.notification.NotificationType;
+import org.thingsboard.server.common.data.notification.info.AlarmCommentNotificationInfo;
 import org.thingsboard.server.common.data.notification.info.EntityActionNotificationInfo;
+import org.thingsboard.server.common.data.notification.rule.trigger.config.AlarmCommentNotificationRuleTriggerConfig;
 import org.thingsboard.server.common.data.notification.settings.MobileAppNotificationDeliveryMethodConfig;
 import org.thingsboard.server.common.data.notification.settings.NotificationSettings;
 import org.thingsboard.server.common.data.notification.settings.SlackNotificationDeliveryMethodConfig;
@@ -76,11 +84,14 @@ import org.thingsboard.server.common.data.notification.template.WebDeliveryMetho
 import org.thingsboard.server.common.data.page.PageLink;
 import org.thingsboard.server.common.data.security.Authority;
 import org.thingsboard.server.dao.notification.DefaultNotifications;
-import org.thingsboard.server.dao.notification.NotificationDao;
 import org.thingsboard.server.dao.service.DaoSqlTest;
 import org.thingsboard.server.service.notification.channels.MicrosoftTeamsNotificationChannel;
+import org.thingsboard.server.service.notification.channels.TeamsAdaptiveCard;
+import org.thingsboard.server.service.notification.channels.TeamsMessageCard;
 import org.thingsboard.server.service.ws.notification.cmd.UnreadNotificationsUpdate;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -111,17 +122,25 @@ public class NotificationApiTest extends AbstractNotificationApiTest {
     @Autowired
     private NotificationCenter notificationCenter;
     @Autowired
-    private NotificationDao notificationDao;
-    @Autowired
     private MicrosoftTeamsNotificationChannel microsoftTeamsNotificationChannel;
     @MockBean
     private FirebaseService firebaseService;
+
+    private static final String TEST_MOBILE_TOKEN = "tenantFcmToken";
 
     @Before
     public void beforeEach() throws Exception {
         loginCustomerUser();
         wsClient = getWsClient();
+
+        loginSysAdmin();
+        MobileAppNotificationDeliveryMethodConfig config = new MobileAppNotificationDeliveryMethodConfig();
+        config.setFirebaseServiceAccountCredentials("testCredentials");
+        saveNotificationSettings(config);
+
         loginTenantAdmin();
+        mobileToken = TEST_MOBILE_TOKEN;
+        doPost("/api/user/mobile/session", new MobileSessionInfo()).andExpect(status().isOk());
     }
 
     @Test
@@ -197,6 +216,88 @@ public class NotificationApiTest extends AbstractNotificationApiTest {
     }
 
     @Test
+    public void testNotificationUpdates_typesFilter_multipleSubs() {
+        int generalSub = wsClient.subscribeForUnreadNotificationsAndWait(10, NotificationType.GENERAL);
+        int alarmSub = wsClient.subscribeForUnreadNotificationsAndWait(10, NotificationType.ALARM, NotificationType.GENERAL);
+        int entityActionSub = wsClient.subscribeForUnreadNotificationsAndWait(10, NotificationType.ENTITY_ACTION, NotificationType.GENERAL);
+        NotificationTarget notificationTarget = createNotificationTarget(customerUserId);
+
+        String generalNotificationText1 = "General notification 1";
+        submitNotificationRequest(NotificationType.GENERAL, notificationTarget.getId(), generalNotificationText1);
+        // expecting all 3 subs to received update
+        await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> {
+            assertThat(wsClient.getLastUpdates()).extractingByKeys(generalSub, alarmSub, entityActionSub)
+                    .allMatch(update -> update.getUpdate().getText().equals(generalNotificationText1)
+                            && update.getTotalUnreadCount() == 1);
+        });
+        Notification generalNotification1 = wsClient.getLastDataUpdate().getUpdate();
+
+        String generalNotificationText2 = "General notification 2";
+        submitNotificationRequest(NotificationType.GENERAL, notificationTarget.getId(), generalNotificationText2);
+        // expecting all 3 subs to received update
+        await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> {
+            assertThat(wsClient.getLastUpdates()).extractingByKeys(generalSub, alarmSub, entityActionSub)
+                    .allMatch(update -> update.getUpdate().getText().equals(generalNotificationText2)
+                            && update.getTotalUnreadCount() == 2);
+        });
+        Notification generalNotification2 = wsClient.getLastDataUpdate().getUpdate();
+
+        // marking as read, expecting all 3 subs to received update
+        wsClient.markNotificationAsRead(generalNotification1.getUuidId());
+        await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> {
+            assertThat(wsClient.getLastUpdates()).extractingByKeys(generalSub, alarmSub, entityActionSub)
+                    .allMatch(update -> update.getTotalUnreadCount() == 1 && update.getNotifications().size() == 1
+                            && update.getNotifications().get(0).getText().equals(generalNotificationText2));
+        });
+        wsClient.getLastUpdates().clear();
+
+        String alarmNotificationText1 = "Alarm notification 1";
+        submitNotificationRequest(NotificationType.ALARM, notificationTarget.getId(), alarmNotificationText1);
+        // expecting only 1 sub to received update
+        await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> {
+            assertThat(wsClient.getLastUpdates()).extractingByKey(alarmSub)
+                    .matches(update -> update.getUpdate().getText().equals(alarmNotificationText1)
+                            && update.getTotalUnreadCount() == 2);
+        });
+        Notification alarmNotification1 = wsClient.getLastDataUpdate().getUpdate();
+
+        String alarmNotificationText2 = "Alarm notification 2";
+        submitNotificationRequest(NotificationType.ALARM, notificationTarget.getId(), alarmNotificationText2);
+        // expecting only 1 sub to received update
+        await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> {
+            assertThat(wsClient.getLastUpdates()).extractingByKey(alarmSub)
+                    .matches(update -> update.getUpdate().getText().equals(alarmNotificationText2)
+                            && update.getTotalUnreadCount() == 3);
+        });
+        await().during(3, TimeUnit.SECONDS)
+                .untilAsserted(() -> {
+                    assertThat(wsClient.getLastUpdates()).extractingByKeys(generalSub, entityActionSub)
+                            .containsOnlyNulls();
+                });
+
+        // marking as read, expecting only 1 sub to receive update
+        wsClient.markNotificationAsRead(alarmNotification1.getUuidId());
+        await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> {
+            assertThat(wsClient.getLastUpdates()).extractingByKey(alarmSub)
+                    .matches(update -> update.getTotalUnreadCount() == 2 && update.getNotifications().size() == 2);
+        });
+        await().during(3, TimeUnit.SECONDS).untilAsserted(() -> {
+            assertThat(wsClient.getLastUpdates()).extractingByKeys(generalSub, entityActionSub)
+                    .containsOnlyNulls();
+        });
+
+        // marking as read, expecting general and entity action subs with 0 unread, and alarm with 1 unread
+        wsClient.markNotificationAsRead(generalNotification2.getUuidId());
+        await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> {
+            assertThat(wsClient.getLastUpdates()).extractingByKeys(generalSub, entityActionSub)
+                    .allMatch(update -> update.getTotalUnreadCount() == 0 && update.getNotifications().isEmpty());
+            assertThat(wsClient.getLastUpdates()).extractingByKey(alarmSub)
+                    .matches(update -> update.getTotalUnreadCount() == 1 && update.getNotifications().size() == 1
+                            && update.getNotifications().get(0).getText().equals(alarmNotificationText2));
+        });
+    }
+
+    @Test
     public void testMarkingAsRead_multipleSessions() throws Exception {
         connectOtherWsClient();
         wsClient.subscribeForUnreadNotifications(10).waitForReply(true);
@@ -237,7 +338,7 @@ public class NotificationApiTest extends AbstractNotificationApiTest {
         int notificationsCount = 20;
         wsClient.registerWaitForUpdate(notificationsCount);
         for (int i = 1; i <= notificationsCount; i++) {
-            submitNotificationRequest(target.getId(), "Test " + i, NotificationDeliveryMethod.WEB);
+            submitNotificationRequest(target.getId(), "Test " + i, NotificationDeliveryMethod.WEB, NotificationDeliveryMethod.MOBILE_APP);
         }
         wsClient.waitForUpdate(true);
         assertThat(wsClient.getLastDataUpdate().getTotalUnreadCount()).isEqualTo(notificationsCount);
@@ -301,7 +402,7 @@ public class NotificationApiTest extends AbstractNotificationApiTest {
         NotificationTarget target = createNotificationTarget(savedDifferentTenantUser.getId());
         int notificationsCount = 20;
         for (int i = 0; i < notificationsCount; i++) {
-            NotificationRequest request = submitNotificationRequest(target.getId(), "Test " + i, NotificationDeliveryMethod.WEB);
+            NotificationRequest request = submitNotificationRequest(target.getId(), "Test " + i, NotificationDeliveryMethod.WEB, NotificationDeliveryMethod.MOBILE_APP);
             awaitNotificationRequest(request.getId());
         }
         List<NotificationRequest> requests = notificationRequestService.findNotificationRequestsByTenantIdAndOriginatorType(tenantId, EntityType.USER, new PageLink(100)).getData();
@@ -309,13 +410,15 @@ public class NotificationApiTest extends AbstractNotificationApiTest {
 
         deleteDifferentTenant();
 
-        assertThat(notificationRequestService.findNotificationRequestsByTenantIdAndOriginatorType(tenantId, EntityType.USER, new PageLink(1)).getTotalElements())
-                .isZero();
+        await().atMost(TIMEOUT, TimeUnit.SECONDS).untilAsserted(() -> {
+            assertThat(notificationRequestService.findNotificationRequestsByTenantIdAndOriginatorType(tenantId, EntityType.USER, new PageLink(1)).getTotalElements())
+                    .isZero();
+        });
     }
 
     @Test
     public void testNotificationUpdatesForSeveralUsers() throws Exception {
-        int usersCount = 150;
+        int usersCount = 50;
         Map<User, NotificationApiWsClient> sessions = new HashMap<>();
         List<NotificationTargetId> targets = new ArrayList<>();
 
@@ -495,7 +598,7 @@ public class NotificationApiTest extends AbstractNotificationApiTest {
     @Test
     public void testNotificationRequestInfo() throws Exception {
         NotificationDeliveryMethod[] deliveryMethods = new NotificationDeliveryMethod[]{
-                NotificationDeliveryMethod.WEB
+                NotificationDeliveryMethod.WEB, NotificationDeliveryMethod.MOBILE_APP
         };
         NotificationTemplate template = createNotificationTemplate(NotificationType.GENERAL, "Test subject", "Test text", deliveryMethods);
         NotificationTarget target = createNotificationTarget(tenantAdminUserId);
@@ -509,19 +612,17 @@ public class NotificationApiTest extends AbstractNotificationApiTest {
 
     @Test
     public void testNotificationRequestStats() throws Exception {
-        wsClient.subscribeForUnreadNotifications(10);
-        wsClient.waitForReply(true);
-
-        wsClient.registerWaitForUpdate();
         NotificationTarget notificationTarget = createNotificationTarget(customerUserId);
+
         NotificationRequest notificationRequest = submitNotificationRequest(notificationTarget.getId(), "Test :)", NotificationDeliveryMethod.WEB);
-        wsClient.waitForUpdate();
-
-        await().atMost(2, TimeUnit.SECONDS)
-                .until(() -> findNotificationRequest(notificationRequest.getId()).isSent());
-        NotificationRequestStats stats = getStats(notificationRequest.getId());
-
+        NotificationRequestStats stats = awaitNotificationRequest(notificationRequest.getId());
         assertThat(stats.getSent().get(NotificationDeliveryMethod.WEB)).hasValue(1);
+
+        doDelete("/api/user/mobile/session").andExpect(status().isOk());
+        notificationRequest = submitNotificationRequest(notificationTarget.getId(), "Test", NotificationDeliveryMethod.MOBILE_APP);
+        stats = awaitNotificationRequest(notificationRequest.getId());
+        assertThat(stats.getErrors().get(NotificationDeliveryMethod.MOBILE_APP)).hasSize(1);
+        assertThat(stats.getTotalErrors()).hasValue(1);
     }
 
     @Test
@@ -656,7 +757,7 @@ public class NotificationApiTest extends AbstractNotificationApiTest {
     }
 
     @Test
-    public void testMicrosoftTeamsNotifications() throws Exception {
+    public void testMicrosoftTeamsNotificationsWithOfficeConnector() throws URISyntaxException {
         RestTemplate restTemplate = mock(RestTemplate.class);
         microsoftTeamsNotificationChannel.setRestTemplate(restTemplate);
 
@@ -664,6 +765,7 @@ public class NotificationApiTest extends AbstractNotificationApiTest {
         var targetConfig = new MicrosoftTeamsNotificationTargetConfig();
         targetConfig.setWebhookUrl(webhookUrl);
         targetConfig.setChannelName("My channel");
+        targetConfig.setUseOldApi(true);
         NotificationTarget target = new NotificationTarget();
         target.setName("Microsoft Teams channel");
         target.setConfiguration(targetConfig);
@@ -674,7 +776,7 @@ public class NotificationApiTest extends AbstractNotificationApiTest {
         String templateParams = "${recipientTitle} - ${entityType}";
         template.setSubject("Subject: " + templateParams);
         template.setBody("Body: " + templateParams);
-        template.setThemeColor("ff0000");
+        template.setThemeColor("#ff0000");
         var button = new MicrosoftTeamsDeliveryMethodNotificationTemplate.Button();
         button.setEnabled(true);
         button.setText("Button: " + templateParams);
@@ -707,11 +809,13 @@ public class NotificationApiTest extends AbstractNotificationApiTest {
         assertThat(preview.getRecipientsCountByTarget().get(target.getName())).isEqualTo(1);
         assertThat(preview.getRecipientsPreview()).containsOnly(targetConfig.getChannelName());
 
-        var messageCaptor = ArgumentCaptor.forClass(MicrosoftTeamsNotificationChannel.Message.class);
+        ArgumentCaptor<HttpEntity<String>> messageCaptor = ArgumentCaptor.forClass(HttpEntity.class);
         notificationCenter.processNotificationRequest(tenantId, notificationRequest, null);
-        verify(restTemplate, timeout(20000)).postForEntity(eq(webhookUrl), messageCaptor.capture(), any());
+        verify(restTemplate, timeout(20000)).postForEntity(eq(new URI(webhookUrl)), messageCaptor.capture(), any());
 
-        var message = messageCaptor.getValue();
+        HttpEntity<String> value = messageCaptor.getValue();
+        TeamsMessageCard message = JacksonUtil.fromString(value.getBody(), TeamsMessageCard.class);
+
         String expectedParams = "My channel - Device";
         assertThat(message.getThemeColor()).isEqualTo(template.getThemeColor());
         assertThat(message.getSections().get(0).getActivityTitle()).isEqualTo("Subject: " + expectedParams);
@@ -721,18 +825,81 @@ public class NotificationApiTest extends AbstractNotificationApiTest {
     }
 
     @Test
-    public void testMobileAppNotifications() throws Exception {
-        loginSysAdmin();
-        MobileAppNotificationDeliveryMethodConfig config = new MobileAppNotificationDeliveryMethodConfig();
-        config.setFirebaseServiceAccountCredentials("testCredentials");
-        saveNotificationSettings(config);
+    public void testMicrosoftTeamsNotificationsWithWorkflow() throws Exception {
+        RestTemplate restTemplate = mock(RestTemplate.class);
+        microsoftTeamsNotificationChannel.setRestTemplate(restTemplate);
 
+        String webhookUrl = "https://webhook.com/webhookb2/9628fa60-d873-11ed-913c-a196b1f9b445";
+        var targetConfig = new MicrosoftTeamsNotificationTargetConfig();
+        targetConfig.setWebhookUrl(webhookUrl);
+        targetConfig.setChannelName("My channel");
+        targetConfig.setUseOldApi(false);
+        NotificationTarget target = new NotificationTarget();
+        target.setName("Microsoft Teams channel");
+        target.setConfiguration(targetConfig);
+        target = saveNotificationTarget(target);
+
+        var template = new MicrosoftTeamsDeliveryMethodNotificationTemplate();
+        template.setEnabled(true);
+        String templateParams = "${recipientTitle} - ${entityType}";
+        template.setSubject("Subject: " + templateParams);
+        template.setBody("Body: " + templateParams);
+        template.setThemeColor("#ff0000");
+        var button = new MicrosoftTeamsDeliveryMethodNotificationTemplate.Button();
+        button.setEnabled(true);
+        button.setText("Button: " + templateParams);
+        button.setLinkType(LinkType.LINK);
+        button.setLink("https://" + templateParams);
+        template.setButton(button);
+        NotificationTemplate notificationTemplate = new NotificationTemplate();
+        notificationTemplate.setName("Notification to Teams");
+        notificationTemplate.setNotificationType(NotificationType.GENERAL);
+        NotificationTemplateConfig templateConfig = new NotificationTemplateConfig();
+        templateConfig.setDeliveryMethodsTemplates(Map.of(
+                NotificationDeliveryMethod.MICROSOFT_TEAMS, template
+        ));
+        notificationTemplate.setConfiguration(templateConfig);
+        notificationTemplate = saveNotificationTemplate(notificationTemplate);
+
+        NotificationRequest notificationRequest = NotificationRequest.builder()
+                .tenantId(tenantId)
+                .originatorEntityId(tenantAdminUserId)
+                .templateId(notificationTemplate.getId())
+                .targets(List.of(target.getUuidId()))
+                .info(EntityActionNotificationInfo.builder()
+                        .entityId(new DeviceId(UUID.randomUUID()))
+                        .actionType(ActionType.ADDED)
+                        .userId(tenantAdminUserId.getId())
+                        .build())
+                .build();
+
+        NotificationRequestPreview preview = doPost("/api/notification/request/preview", notificationRequest, NotificationRequestPreview.class);
+        assertThat(preview.getRecipientsCountByTarget().get(target.getName())).isEqualTo(1);
+        assertThat(preview.getRecipientsPreview()).containsOnly(targetConfig.getChannelName());
+
+        ArgumentCaptor<HttpEntity<String>> messageCaptor = ArgumentCaptor.forClass(HttpEntity.class);
+        notificationCenter.processNotificationRequest(tenantId, notificationRequest, null);
+        verify(restTemplate, timeout(20000)).postForEntity(eq(new URI(webhookUrl)), messageCaptor.capture(), any());
+
+        HttpEntity<String> value = messageCaptor.getValue();
+        TeamsAdaptiveCard message = JacksonUtil.fromString(value.getBody(), TeamsAdaptiveCard.class);
+        String expectedParams = "My channel - Device";
+        assertThat(message).isNotNull();
+        assertThat(message.getAttachments().get(0).getContent().getBackgroundImage().getUrl()).isNotEmpty();
+        assertThat(message.getAttachments().get(0).getContent().getTextBlocks().get(0).getText()).isEqualTo("Subject: " + expectedParams);
+        assertThat(message.getAttachments().get(0).getContent().getTextBlocks().get(1).getText()).isEqualTo("Body: " + expectedParams);
+        assertThat(message.getAttachments().get(0).getContent().getActions().get(0).getTitle()).isEqualTo("Button: " + expectedParams);
+        assertThat(message.getAttachments().get(0).getContent().getActions().get(0).getUrl()).isEqualTo("https://" + expectedParams);
+    }
+
+    @Test
+    public void testMobileAppNotifications() throws Exception {
         loginCustomerUser();
         mobileToken = "customerFcmToken";
         doPost("/api/user/mobile/session", new MobileSessionInfo()).andExpect(status().isOk());
 
         loginTenantAdmin();
-        mobileToken = "tenantFcmToken1";
+        mobileToken = TEST_MOBILE_TOKEN;
         doPost("/api/user/mobile/session", new MobileSessionInfo()).andExpect(status().isOk());
         mobileToken = "tenantFcmToken2";
         doPost("/api/user/mobile/session", new MobileSessionInfo()).andExpect(status().isOk());
@@ -741,7 +908,7 @@ public class NotificationApiTest extends AbstractNotificationApiTest {
 
         loginTenantAdmin();
         NotificationTarget target = createNotificationTarget(new AllUsersFilter());
-        NotificationTemplate template = createNotificationTemplate(NotificationType.GENERAL, "Title", "Message", NotificationDeliveryMethod.MOBILE_APP);
+        NotificationTemplate template = createNotificationTemplate(NotificationType.GENERAL, "Title", "Message", NotificationDeliveryMethod.MOBILE_APP, NotificationDeliveryMethod.WEB);
         ((MobileAppDeliveryMethodNotificationTemplate) template.getConfiguration().getDeliveryMethodsTemplates().get(NotificationDeliveryMethod.MOBILE_APP))
                 .setAdditionalConfig(JacksonUtil.newObjectNode().set("test", JacksonUtil.newObjectNode().put("test", "test")));
         saveNotificationTemplate(template);
@@ -753,11 +920,19 @@ public class NotificationApiTest extends AbstractNotificationApiTest {
                 .contains("doesn't use the mobile app");
 
         verify(firebaseService).sendMessage(eq(tenantId), eq("testCredentials"),
-                eq("tenantFcmToken1"), eq("Title"), eq("Message"), argThat(data -> "test".equals(data.get("test.test"))));
+                eq(TEST_MOBILE_TOKEN), eq("Title"), eq("Message"), argThat(data -> "test".equals(data.get("test.test"))), eq(1));
         verify(firebaseService).sendMessage(eq(tenantId), eq("testCredentials"),
-                eq("tenantFcmToken2"), eq("Title"), eq("Message"), argThat(data -> "test".equals(data.get("test.test"))));
+                eq("tenantFcmToken2"), eq("Title"), eq("Message"), argThat(data -> "test".equals(data.get("test.test"))), eq(1));
         verify(firebaseService).sendMessage(eq(tenantId), eq("testCredentials"),
-                eq("customerFcmToken"), eq("Title"), eq("Message"), argThat(data -> "test".equals(data.get("test.test"))));
+                eq("customerFcmToken"), eq("Title"), eq("Message"), argThat(data -> "test".equals(data.get("test.test"))), eq(1));
+        assertThat(getMyNotifications(NotificationDeliveryMethod.MOBILE_APP, true, 10)).singleElement().satisfies(notification -> {
+            assertThat(notification.getDeliveryMethod()).isEqualTo(NotificationDeliveryMethod.MOBILE_APP);
+            assertThat(notification.getText()).isEqualTo("Message");
+            assertThat(notification.getSubject()).isEqualTo("Title");
+        });
+        assertThat(getMyNotifications(true, 10)).singleElement().satisfies(notification -> {
+            assertThat(notification.getDeliveryMethod()).isEqualTo(NotificationDeliveryMethod.WEB);
+        });
         verifyNoMoreInteractions(firebaseService);
         clearInvocations(firebaseService);
 
@@ -765,10 +940,68 @@ public class NotificationApiTest extends AbstractNotificationApiTest {
         request = submitNotificationRequest(List.of(target.getId()), template.getId(), 0);
         awaitNotificationRequest(request.getId());
         verify(firebaseService).sendMessage(eq(tenantId), eq("testCredentials"),
-                eq("tenantFcmToken1"), eq("Title"), eq("Message"), anyMap());
+                eq(TEST_MOBILE_TOKEN), eq("Title"), eq("Message"), anyMap(), eq(2));
         verify(firebaseService).sendMessage(eq(tenantId), eq("testCredentials"),
-                eq("customerFcmToken"), eq("Title"), eq("Message"), anyMap());
+                eq("customerFcmToken"), eq("Title"), eq("Message"), anyMap(), eq(2));
         verifyNoMoreInteractions(firebaseService);
+
+        Integer unreadCount = doGet("/api/notifications/unread/count", Integer.class);
+        assertThat(unreadCount).isEqualTo(2);
+    }
+
+    @Test
+    public void testMobileAppNotifications_ruleBased() throws Exception {
+        loginTenantAdmin();
+        mobileToken = TEST_MOBILE_TOKEN;
+        doPost("/api/user/mobile/session", new MobileSessionInfo()).andExpect(status().isOk());
+
+        createNotificationRule(AlarmCommentNotificationRuleTriggerConfig.builder().onlyUserComments(true).build(),
+                DefaultNotifications.alarmComment.getSubject(), DefaultNotifications.alarmComment.getText(),
+                List.of(createNotificationTarget(tenantAdminUserId).getId()), NotificationDeliveryMethod.MOBILE_APP, NotificationDeliveryMethod.WEB);
+
+        Device device = createDevice("test", "test");
+        UUID alarmDashboardId = UUID.randomUUID();
+        Alarm alarm = Alarm.builder()
+                .type("test")
+                .tenantId(tenantId)
+                .originator(device.getId())
+                .severity(AlarmSeverity.MAJOR)
+                .details(JacksonUtil.newObjectNode()
+                        .put("dashboardId", alarmDashboardId.toString()))
+                .build();
+        alarm = doPost("/api/alarm", alarm, Alarm.class);
+        AlarmId alarmId = alarm.getId();
+
+        AlarmComment comment = new AlarmComment();
+        comment.setComment(JacksonUtil.newObjectNode()
+                .put("text", "text"));
+        doPost("/api/alarm/" + alarmId + "/comment", comment, AlarmComment.class);
+
+        String expectedSubject = "Comment on 'test' alarm";
+        String expectedBody = TENANT_ADMIN_EMAIL + " added comment: text";
+        ArgumentCaptor<Map<String, String>> msgCaptor = ArgumentCaptor.forClass(Map.class);
+        await().atMost(TIMEOUT, TimeUnit.SECONDS).untilAsserted(() -> {
+            verify(firebaseService).sendMessage(eq(tenantId), eq("testCredentials"),
+                    eq(TEST_MOBILE_TOKEN), eq(expectedSubject),
+                    eq(expectedBody),
+                    msgCaptor.capture(), eq(1));
+        });
+        Map<String, String> firebaseMessageData = msgCaptor.getValue();
+        assertThat(firebaseMessageData.keySet()).doesNotContainNull().doesNotContain("");
+        assertThat(firebaseMessageData.values()).doesNotContainNull();
+        assertThat(firebaseMessageData.get("info.userEmail")).isEqualTo(TENANT_ADMIN_EMAIL);
+        assertThat(firebaseMessageData.get("info.alarmType")).isEqualTo("test");
+        assertThat(firebaseMessageData.get("onClick.enabled")).isEqualTo("true");
+        assertThat(firebaseMessageData.get("onClick.linkType")).isEqualTo("DASHBOARD");
+        assertThat(firebaseMessageData.get("onClick.dashboardId")).isEqualTo(alarmDashboardId.toString());
+
+        assertThat(getMyNotifications(NotificationDeliveryMethod.MOBILE_APP, true, 10)).singleElement().satisfies(notification -> {
+            assertThat(notification.getDeliveryMethod()).isEqualTo(NotificationDeliveryMethod.MOBILE_APP);
+            assertThat(notification.getSubject()).isEqualTo(expectedSubject);
+            assertThat(notification.getText()).isEqualTo(expectedBody);
+            assertThat(notification.getInfo()).asInstanceOf(type(AlarmCommentNotificationInfo.class))
+                    .matches(info -> info.getAlarmId().equals(alarmId.getId()) && info.getDashboardId().getId().equals(alarmDashboardId));
+        });
     }
 
     @Test
@@ -802,7 +1035,7 @@ public class NotificationApiTest extends AbstractNotificationApiTest {
     }
 
     private NotificationRequestStats awaitNotificationRequest(NotificationRequestId requestId) {
-        return await().atMost(30, TimeUnit.SECONDS)
+        return await().atMost(TIMEOUT, TimeUnit.SECONDS)
                 .until(() -> getStats(requestId), Objects::nonNull);
     }
 

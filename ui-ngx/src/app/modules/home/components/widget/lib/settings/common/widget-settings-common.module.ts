@@ -49,7 +49,8 @@ import {
 import { ColorRangeListComponent } from '@home/components/widget/lib/settings/common/color-range-list.component';
 import { ColorRangePanelComponent } from '@home/components/widget/lib/settings/common/color-range-panel.component';
 import {
-  ColorRangeSettingsComponent, ColorRangeSettingsComponentService
+  ColorRangeSettingsComponent,
+  ColorRangeSettingsComponentService
 } from '@home/components/widget/lib/settings/common/color-range-settings.component';
 import {
   GetValueActionSettingsComponent
@@ -92,6 +93,71 @@ import {
 import {
   WidgetButtonCustomStylePanelComponent
 } from '@home/components/widget/lib/settings/common/button/widget-button-custom-style-panel.component';
+import {
+  TimeSeriesChartAxisSettingsComponent
+} from '@home/components/widget/lib/settings/common/chart/time-series-chart-axis-settings.component';
+import {
+  TimeSeriesChartThresholdsPanelComponent
+} from '@home/components/widget/lib/settings/common/chart/time-series-chart-thresholds-panel.component';
+import {
+  TimeSeriesChartThresholdRowComponent
+} from '@home/components/widget/lib/settings/common/chart/time-series-chart-threshold-row.component';
+import { DataKeyInputComponent } from '@home/components/widget/lib/settings/common/data-key-input.component';
+import { EntityAliasInputComponent } from '@home/components/widget/lib/settings/common/entity-alias-input.component';
+import {
+  TimeSeriesChartThresholdSettingsPanelComponent
+} from '@home/components/widget/lib/settings/common/chart/time-series-chart-threshold-settings-panel.component';
+import {
+  TimeSeriesNoAggregationBarWidthSettingsComponent
+} from '@home/components/widget/lib/settings/common/chart/time-series-no-aggregation-bar-width-settings.component';
+import {
+  TimeSeriesChartYAxesPanelComponent
+} from '@home/components/widget/lib/settings/common/chart/time-series-chart-y-axes-panel.component';
+import {
+  TimeSeriesChartYAxisRowComponent
+} from '@home/components/widget/lib/settings/common/chart/time-series-chart-y-axis-row.component';
+import {
+  TimeSeriesChartAxisSettingsPanelComponent
+} from '@home/components/widget/lib/settings/common/chart/time-series-chart-axis-settings-panel.component';
+import {
+  ChartAnimationSettingsComponent
+} from '@home/components/widget/lib/settings/common/chart/chart-animation-settings.component';
+import {
+  AutoDateFormatSettingsPanelComponent
+} from '@home/components/widget/lib/settings/common/auto-date-format-settings-panel.component';
+import {
+  AutoDateFormatSettingsComponent
+} from '@home/components/widget/lib/settings/common/auto-date-format-settings.component';
+import {
+  ChartFillSettingsComponent
+} from '@home/components/widget/lib/settings/common/chart/chart-fill-settings.component';
+import {
+  TimeSeriesChartThresholdSettingsComponent
+} from '@home/components/widget/lib/settings/common/chart/time-series-chart-threshold-settings.component';
+import {
+  TimeSeriesChartStateRowComponent
+} from '@home/components/widget/lib/settings/common/chart/time-series-chart-state-row.component';
+import {
+  TimeSeriesChartStatesPanelComponent
+} from '@home/components/widget/lib/settings/common/chart/time-series-chart-states-panel.component';
+import {
+  TimeSeriesChartAxisSettingsButtonComponent
+} from '@home/components/widget/lib/settings/common/chart/time-series-chart-axis-settings-button.component';
+import {
+  TimeSeriesChartGridSettingsComponent
+} from '@home/components/widget/lib/settings/common/chart/time-series-chart-grid-settings.component';
+import {
+  StatusWidgetStateSettingsComponent
+} from '@home/components/widget/lib/settings/common/indicator/status-widget-state-settings.component';
+import { ChartBarSettingsComponent } from '@home/components/widget/lib/settings/common/chart/chart-bar-settings.component';
+import { AdvancedRangeComponent } from '@home/components/widget/lib/settings/common/advanced-range.component';
+import { GradientComponent } from '@home/components/widget/lib/settings/common/gradient.component';
+import {
+  ValueSourceDataKeyComponent
+} from '@home/components/widget/lib/settings/common/value-source-data-key.component';
+import {
+  ScadaSymbolObjectSettingsComponent
+} from '@home/components/widget/lib/settings/common/scada/scada-symbol-object-settings.component';
 
 @NgModule({
   declarations: [
@@ -105,9 +171,12 @@ import {
     CssSizeInputComponent,
     DateFormatSelectComponent,
     DateFormatSettingsPanelComponent,
+    AutoDateFormatSettingsComponent,
+    AutoDateFormatSettingsPanelComponent,
     BackgroundSettingsComponent,
     BackgroundSettingsPanelComponent,
     ValueSourceComponent,
+    ValueSourceDataKeyComponent,
     LegendConfigComponent,
     WidgetFontComponent,
     CountWidgetSettingsComponent,
@@ -127,7 +196,29 @@ import {
     WidgetActionSettingsPanelComponent,
     WidgetButtonAppearanceComponent,
     WidgetButtonCustomStyleComponent,
-    WidgetButtonCustomStylePanelComponent
+    WidgetButtonCustomStylePanelComponent,
+    TimeSeriesChartAxisSettingsComponent,
+    TimeSeriesChartThresholdsPanelComponent,
+    TimeSeriesChartThresholdRowComponent,
+    TimeSeriesChartThresholdSettingsPanelComponent,
+    TimeSeriesNoAggregationBarWidthSettingsComponent,
+    TimeSeriesChartYAxesPanelComponent,
+    TimeSeriesChartYAxisRowComponent,
+    TimeSeriesChartAxisSettingsPanelComponent,
+    TimeSeriesChartAxisSettingsButtonComponent,
+    ChartAnimationSettingsComponent,
+    ChartFillSettingsComponent,
+    ChartBarSettingsComponent,
+    TimeSeriesChartThresholdSettingsComponent,
+    TimeSeriesChartStatesPanelComponent,
+    TimeSeriesChartStateRowComponent,
+    TimeSeriesChartGridSettingsComponent,
+    StatusWidgetStateSettingsComponent,
+    ScadaSymbolObjectSettingsComponent,
+    DataKeyInputComponent,
+    EntityAliasInputComponent,
+    AdvancedRangeComponent,
+    GradientComponent
   ],
   imports: [
     CommonModule,
@@ -145,9 +236,12 @@ import {
     CssSizeInputComponent,
     DateFormatSelectComponent,
     DateFormatSettingsPanelComponent,
+    AutoDateFormatSettingsComponent,
+    AutoDateFormatSettingsPanelComponent,
     BackgroundSettingsComponent,
     BackgroundSettingsPanelComponent,
     ValueSourceComponent,
+    ValueSourceDataKeyComponent,
     LegendConfigComponent,
     WidgetFontComponent,
     CountWidgetSettingsComponent,
@@ -167,7 +261,29 @@ import {
     WidgetActionSettingsPanelComponent,
     WidgetButtonAppearanceComponent,
     WidgetButtonCustomStyleComponent,
-    WidgetButtonCustomStylePanelComponent
+    WidgetButtonCustomStylePanelComponent,
+    TimeSeriesChartAxisSettingsComponent,
+    TimeSeriesChartThresholdsPanelComponent,
+    TimeSeriesChartThresholdRowComponent,
+    TimeSeriesChartThresholdSettingsPanelComponent,
+    TimeSeriesNoAggregationBarWidthSettingsComponent,
+    TimeSeriesChartYAxesPanelComponent,
+    TimeSeriesChartYAxisRowComponent,
+    TimeSeriesChartAxisSettingsPanelComponent,
+    TimeSeriesChartAxisSettingsButtonComponent,
+    ChartAnimationSettingsComponent,
+    ChartFillSettingsComponent,
+    ChartBarSettingsComponent,
+    TimeSeriesChartThresholdSettingsComponent,
+    TimeSeriesChartStatesPanelComponent,
+    TimeSeriesChartStateRowComponent,
+    TimeSeriesChartGridSettingsComponent,
+    StatusWidgetStateSettingsComponent,
+    ScadaSymbolObjectSettingsComponent,
+    DataKeyInputComponent,
+    EntityAliasInputComponent,
+    AdvancedRangeComponent,
+    GradientComponent
   ],
   providers: [
     ColorSettingsComponentService,
