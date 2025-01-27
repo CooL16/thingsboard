@@ -33,7 +33,7 @@ import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.context.TestPropertySource;
 import org.thingsboard.common.util.JacksonUtil;
-import org.thingsboard.common.util.ThingsBoardThreadFactory;
+import org.thingsboard.common.util.ThingsBoardExecutors;
 import org.thingsboard.server.common.data.Device;
 import org.thingsboard.server.common.data.DeviceProfile;
 import org.thingsboard.server.common.data.DeviceProfileProvisionType;
@@ -82,7 +82,6 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
@@ -148,8 +147,7 @@ public abstract class AbstractLwM2MIntegrationTest extends AbstractTransportInte
                     "    \"telemetry\": [],\n" +
                     "    \"attributeLwm2m\": {}\n" +
                     "  }";
-    public static  String OBSERVE_ATTRIBUTES_WITH_PARAMS =
-
+    public static  String TELEMETRY_WITHOUT_OBSERVE =
             "    {\n" +
                     "    \"keyName\": {\n" +
                     "      \"/3_1.2/0/9\": \"batteryLevel\"\n" +
@@ -162,6 +160,39 @@ public abstract class AbstractLwM2MIntegrationTest extends AbstractTransportInte
                     "    ],\n" +
                     "    \"attributeLwm2m\": {}\n" +
                     "  }";
+    public static  String TELEMETRY_WITH_ONE_OBSERVE =
+            "    {\n" +
+                    "    \"keyName\": {\n" +
+                    "      \"/3_1.2/0/9\": \"batteryLevel\"\n" +
+                    "    },\n" +
+                    "    \"observe\": [\n" +
+                    "      \"/3_1.2/0/9\"\n" +
+                    "    ],\n" +
+                    "    \"attribute\": [\n" +
+                    "    ],\n" +
+                    "    \"telemetry\": [\n" +
+                    "      \"/3_1.2/0/9\"\n" +
+                    "    ],\n" +
+                    "    \"attributeLwm2m\": {}\n" +
+                    "  }";
+
+    public static  String TELEMETRY_WITH_MANY_OBSERVE =
+               "    {\n" +
+                       "    \"keyName\": {\n" +
+                       "      \"/3_1.2/0/9\": \"batteryLevel\",\n" +
+                       "      \"/3_1.2/0/20\": \"batteryStatus\"\n" +
+                       "    },\n" +
+                       "    \"observe\": [\n" +
+                       "      \"/3_1.2/0/9\",\n" +
+                       "      \"/3_1.2/0/20\"\n" +
+                       "    ],\n" +
+                       "    \"attribute\": [],\n" +
+                       "    \"telemetry\": [\n" +
+                       "      \"/3_1.2/0/9\",\n" +
+                       "      \"/3_1.2/0/20\"\n" +
+                       "    ],\n" +
+                       "    \"attributeLwm2m\": {}\n" +
+                       "  }";
 
     public static final String CLIENT_LWM2M_SETTINGS =
             "     {\n" +
@@ -198,7 +229,7 @@ public abstract class AbstractLwM2MIntegrationTest extends AbstractTransportInte
     }
 
     private void init() throws Exception {
-        executor = Executors.newScheduledThreadPool(10, ThingsBoardThreadFactory.forName("test-lwm2m-scheduled"));
+        executor = ThingsBoardExecutors.newScheduledThreadPool(10, "test-lwm2m-scheduled");
         loginTenantAdmin();
         for (String resourceName : this.resources) {
             TbResource lwModel = new TbResource();
@@ -218,7 +249,7 @@ public abstract class AbstractLwM2MIntegrationTest extends AbstractTransportInte
                                                     LwM2MDeviceCredentials deviceCredentials,
                                                     String endpoint,
                                                     boolean queueMode) throws Exception {
-        Lwm2mDeviceProfileTransportConfiguration transportConfiguration = getTransportConfiguration(OBSERVE_ATTRIBUTES_WITH_PARAMS, getBootstrapServerCredentialsNoSec(NONE));
+        Lwm2mDeviceProfileTransportConfiguration transportConfiguration = getTransportConfiguration(TELEMETRY_WITHOUT_OBSERVE, getBootstrapServerCredentialsNoSec(NONE));
         DeviceProfile deviceProfile = createLwm2mDeviceProfile("profileFor" + endpoint, transportConfiguration);
         Device device = createLwm2mDevice(deviceCredentials, endpoint, deviceProfile.getId());
 

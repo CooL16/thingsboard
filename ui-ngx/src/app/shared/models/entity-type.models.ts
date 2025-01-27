@@ -16,6 +16,7 @@
 
 import { TenantId } from './id/tenant-id';
 import { BaseData, HasId } from '@shared/models/base-data';
+import { getProviderHelpLink, OAuth2Client } from '@shared/models/oauth2.models';
 
 export enum EntityType {
   TENANT = 'TENANT',
@@ -47,6 +48,7 @@ export enum EntityType {
   NOTIFICATION_TEMPLATE = 'NOTIFICATION_TEMPLATE',
   OAUTH2_CLIENT = 'OAUTH2_CLIENT',
   DOMAIN = 'DOMAIN',
+  MOBILE_APP_BUNDLE = 'MOBILE_APP_BUNDLE',
   MOBILE_APP = 'MOBILE_APP'
 }
 
@@ -402,7 +404,8 @@ export const entityTypeTranslations = new Map<EntityType | AliasEntityType, Enti
         list: 'entity.list-of-notification-rules',
         noEntities: 'notification.no-rules-notification',
         search: 'notification.search-rules',
-        selectedEntities: 'notification.selected-rules'
+        selectedEntities: 'notification.selected-rules',
+        add: 'notification.add-rule'
       }
     ],
     [
@@ -413,7 +416,8 @@ export const entityTypeTranslations = new Map<EntityType | AliasEntityType, Enti
         list: 'entity.list-of-notification-targets',
         noEntities: 'notification.no-recipients-notification',
         search: 'notification.search-recipients',
-        selectedEntities: 'notification.selected-recipients'
+        selectedEntities: 'notification.selected-recipients',
+        add: 'notification.add-recipients'
       }
     ],
     [
@@ -424,7 +428,8 @@ export const entityTypeTranslations = new Map<EntityType | AliasEntityType, Enti
         list: 'entity.list-of-notification-templates',
         noEntities: 'notification.no-notification-templates',
         search: 'notification.search-templates',
-        selectedEntities: 'notification.selected-template'
+        selectedEntities: 'notification.selected-template',
+        add: 'notification.add-template'
       }
     ],
     [
@@ -458,9 +463,20 @@ export const entityTypeTranslations = new Map<EntityType | AliasEntityType, Enti
         typePlural: 'entity.type-mobile-apps',
         list: 'entity.list-of-mobile-apps',
         details: 'admin.oauth2.mobile-app-details',
-        add: 'admin.oauth2.add-mobile-app',
-        noEntities: 'admin.oauth2.no-mobile-apps',
-        search: 'admin.oauth2.search-mobile-apps'
+        add: 'mobile.add-application',
+        noEntities: 'mobile.no-application',
+        search: 'mobile.search-application'
+      }
+    ],
+    [
+      EntityType.MOBILE_APP_BUNDLE,
+      {
+        type: 'entity.type-mobile-app-bundle',
+        typePlural: 'entity.type-mobile-app-bundles',
+        list: 'entity.list-of-mobile-app-bundles',
+        add: 'mobile.add-bundle',
+        noEntities: 'mobile.no-bundles',
+        search: 'mobile.search-bundles'
       }
     ]
   ]
@@ -573,19 +589,26 @@ export const entityTypeResources = new Map<EntityType, EntityTypeResource<BaseDa
     [
       EntityType.OAUTH2_CLIENT,
       {
-        helpLinkId: 'oauth2Settings'
+        helpLinkId: 'oauth2Settings',
+        helpLinkIdForEntity: (entity: OAuth2Client) => getProviderHelpLink(entity.additionalInfo.providerName)
       }
     ],
     [
       EntityType.DOMAIN,
       {
-        helpLinkId: 'oauth2Settings'
+        helpLinkId: 'domains'
       }
     ],
     [
       EntityType.MOBILE_APP,
       {
-        helpLinkId: 'oauth2Settings'
+        helpLinkId: 'mobileApplication'
+      }
+    ],
+    [
+      EntityType.MOBILE_APP_BUNDLE,
+      {
+        helpLinkId: 'mobileBundle'
       }
     ]
   ]
@@ -611,7 +634,7 @@ export const baseDetailsPageByEntityType = new Map<EntityType, string>([
   [EntityType.WIDGET_TYPE, '/resources/widgets-library/widget-types/details'],
   [EntityType.OAUTH2_CLIENT, '/security-settings/oauth2/clients/details'],
   [EntityType.DOMAIN, '/security-settings/oauth2/clients/details'],
-  [EntityType.MOBILE_APP, '/security-settings/oauth2/clients/details']
+  [EntityType.MOBILE_APP, '/mobile-center/applications']
 ]);
 
 export interface EntitySubtype {

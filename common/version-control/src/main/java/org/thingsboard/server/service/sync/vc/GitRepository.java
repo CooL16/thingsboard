@@ -51,7 +51,9 @@ import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.revwalk.filter.RevFilter;
 import org.eclipse.jgit.transport.CredentialsProvider;
 import org.eclipse.jgit.transport.FetchResult;
+import org.eclipse.jgit.transport.PushResult;
 import org.eclipse.jgit.transport.RefSpec;
+import org.eclipse.jgit.transport.RemoteRefUpdate;
 import org.eclipse.jgit.transport.SshTransport;
 import org.eclipse.jgit.transport.URIish;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
@@ -85,12 +87,17 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static org.eclipse.jgit.api.ListBranchCommand.ListMode;
+import static org.eclipse.jgit.transport.RemoteRefUpdate.Status.REJECTED_NODELETE;
+import static org.eclipse.jgit.transport.RemoteRefUpdate.Status.REJECTED_NONFASTFORWARD;
+import static org.eclipse.jgit.transport.RemoteRefUpdate.Status.REJECTED_OTHER_REASON;
+import static org.eclipse.jgit.transport.RemoteRefUpdate.Status.REJECTED_REMOTE_CHANGED;
 
 @Slf4j
 public class GitRepository {
@@ -284,8 +291,8 @@ public class GitRepository {
         return files;
     }
 
-
-    public String getFileContentAtCommit(String file, String commitId) throws IOException {
+    @SneakyThrows
+    public byte[] getFileContentAtCommit(String file, String commitId) {
         log.debug("Executing getFileContentAtCommit [{}][{}][{}]", settings.getRepositoryUri(), commitId, file);
         RevCommit revCommit = resolveCommit(commitId);
         try (TreeWalk treeWalk = TreeWalk.forPath(git.getRepository(), file, revCommit.getTree())) {
@@ -296,8 +303,7 @@ public class GitRepository {
             try (ObjectReader objectReader = git.getRepository().newObjectReader()) {
                 ObjectLoader objectLoader = objectReader.open(blobId);
                 try {
-                    byte[] bytes = objectLoader.getBytes();
-                    return new String(bytes, StandardCharsets.UTF_8);
+                    return objectLoader.getBytes();
                 } catch (LargeObjectException e) {
                     throw new RuntimeException("File " + file + " is too big to load");
                 }
@@ -351,8 +357,18 @@ public class GitRepository {
             return;
         }
         log.debug("Executing push [{}][{}]", settings.getRepositoryUri(), remoteBranch);
-        execute(git.push()
+        Iterable<PushResult> result = execute(git.push()
                 .setRefSpecs(new RefSpec(localBranch + ":" + remoteBranch)));
+        result.forEach(pushResult -> {
+            for (RemoteRefUpdate update : pushResult.getRemoteUpdates()) {
+                RemoteRefUpdate.Status status = update.getStatus();
+                if (status == REJECTED_NONFASTFORWARD || status == REJECTED_NODELETE ||
+                        status == REJECTED_REMOTE_CHANGED || status == REJECTED_OTHER_REASON) {
+                    throw new RuntimeException("Remote repository answered with error: " +
+                            Optional.ofNullable(update.getMessage()).orElseGet(status::name));
+                }
+            }
+        });
     }
 
     public String getContentsDiff(String content1, String content2) throws IOException {
@@ -397,11 +413,11 @@ public class GitRepository {
                         diff.setFilePath(diffEntry.getChangeType() != DiffEntry.ChangeType.DELETE ? diffEntry.getNewPath() : diffEntry.getOldPath());
                         diff.setChangeType(diffEntry.getChangeType());
                         try {
-                            diff.setFileContentAtCommit1(getFileContentAtCommit(diff.getFilePath(), commit1));
+                            diff.setFileContentAtCommit1(new String(getFileContentAtCommit(diff.getFilePath(), commit1), StandardCharsets.UTF_8));
                         } catch (IllegalArgumentException ignored) {
                         }
                         try {
-                            diff.setFileContentAtCommit2(getFileContentAtCommit(diff.getFilePath(), commit2));
+                            diff.setFileContentAtCommit2(new String(getFileContentAtCommit(diff.getFilePath(), commit2), StandardCharsets.UTF_8));
                         } catch (IllegalArgumentException ignored) {
                         }
                         return diff;

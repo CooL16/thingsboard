@@ -21,6 +21,7 @@ import org.junit.Test;
 import org.thingsboard.common.util.JacksonUtil;
 import org.thingsboard.rule.engine.metadata.TbGetAttributesNodeConfiguration;
 import org.thingsboard.rule.engine.util.TbMsgSource;
+import org.thingsboard.server.common.data.debug.DebugSettings;
 import org.thingsboard.server.common.data.edge.Edge;
 import org.thingsboard.server.common.data.id.RuleChainId;
 import org.thingsboard.server.common.data.rule.RuleChain;
@@ -48,8 +49,8 @@ public class RuleChainEdgeTest extends AbstractEdgeTest {
 
     @Test
     public void testRuleChains() throws Exception {
-        // create rule chain
-        edgeImitator.expectMessageAmount(2);
+        // create rule chain: 2 messages from create rule chain, 2 messages from load metadata
+        edgeImitator.expectMessageAmount(4);
         RuleChain ruleChain = new RuleChain();
         ruleChain.setName("Edge Test Rule Chain");
         ruleChain.setType(RuleChainType.EDGE);
@@ -58,15 +59,21 @@ public class RuleChainEdgeTest extends AbstractEdgeTest {
                 + "/ruleChain/" + savedRuleChain.getUuidId(), RuleChain.class);
         createRuleChainMetadata(savedRuleChain);
         Assert.assertTrue(edgeImitator.waitForMessages());
-        Optional<RuleChainUpdateMsg> ruleChainUpdateMsgOpt = edgeImitator.findMessageByType(RuleChainUpdateMsg.class);
-        Assert.assertTrue(ruleChainUpdateMsgOpt.isPresent());
-        RuleChainUpdateMsg ruleChainUpdateMsg = ruleChainUpdateMsgOpt.get();
+        List<RuleChainUpdateMsg> ruleChainUpdateMsgs = edgeImitator.findAllMessagesByType(RuleChainUpdateMsg.class);
+        Assert.assertEquals(2, ruleChainUpdateMsgs.size());
+        List<RuleChainMetadataUpdateMsg> ruleChainMetadataUpdateMsgs = edgeImitator.findAllMessagesByType(RuleChainMetadataUpdateMsg.class);
+        Assert.assertEquals(2, ruleChainMetadataUpdateMsgs.size());
+        RuleChainUpdateMsg ruleChainUpdateMsg = ruleChainUpdateMsgs.get(0);
         RuleChain ruleChainMsg = JacksonUtil.fromString(ruleChainUpdateMsg.getEntity(), RuleChain.class, true);
         Assert.assertNotNull(ruleChainMsg);
         Assert.assertTrue(UpdateMsgType.ENTITY_CREATED_RPC_MESSAGE.equals(ruleChainUpdateMsg.getMsgType()) ||
                 UpdateMsgType.ENTITY_UPDATED_RPC_MESSAGE.equals(ruleChainUpdateMsg.getMsgType()));
         Assert.assertEquals(savedRuleChain.getId(), ruleChainMsg.getId());
         Assert.assertEquals(savedRuleChain.getName(), ruleChainMsg.getName());
+        RuleChainMetadataUpdateMsg ruleChainMetadataUpdateMsg = ruleChainMetadataUpdateMsgs.get(0);
+        RuleChainMetaData ruleChainMetaData = JacksonUtil.fromString(ruleChainMetadataUpdateMsg.getEntity(), RuleChainMetaData.class, true);
+        Assert.assertNotNull(ruleChainMetaData);
+        Assert.assertEquals(ruleChainMetaData.getRuleChainId(), savedRuleChain.getId());
 
         testRuleChainMetadataRequestMsg(savedRuleChain.getId());
 
@@ -75,7 +82,7 @@ public class RuleChainEdgeTest extends AbstractEdgeTest {
         doDelete("/api/edge/" + edge.getUuidId()
                 + "/ruleChain/" + savedRuleChain.getUuidId(), RuleChain.class);
         Assert.assertTrue(edgeImitator.waitForMessages());
-        ruleChainUpdateMsgOpt = edgeImitator.findMessageByType(RuleChainUpdateMsg.class);
+        Optional<RuleChainUpdateMsg> ruleChainUpdateMsgOpt = edgeImitator.findMessageByType(RuleChainUpdateMsg.class);
         Assert.assertTrue(ruleChainUpdateMsgOpt.isPresent());
         ruleChainUpdateMsg = ruleChainUpdateMsgOpt.get();
         Assert.assertEquals(UpdateMsgType.ENTITY_DELETED_RPC_MESSAGE, ruleChainUpdateMsg.getMsgType());
@@ -228,7 +235,7 @@ public class RuleChainEdgeTest extends AbstractEdgeTest {
 
         // update metadata for root rule chain
         edgeImitator.expectMessageAmount(1);
-        metaData.getNodes().forEach(n -> n.setDebugMode(true));
+        metaData.getNodes().forEach(n -> n.setDebugSettings(DebugSettings.all()));
         doPost("/api/ruleChain/metadata", metaData, RuleChainMetaData.class);
         Assert.assertTrue(edgeImitator.waitForMessages());
         ruleChainUpdateMsgOpt = edgeImitator.findMessageByType(RuleChainUpdateMsg.class);
@@ -260,4 +267,5 @@ public class RuleChainEdgeTest extends AbstractEdgeTest {
                 .andExpect(status().isOk());
         Assert.assertTrue(edgeImitator.waitForMessages(5));
     }
+
 }

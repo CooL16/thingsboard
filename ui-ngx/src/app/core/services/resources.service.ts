@@ -31,7 +31,7 @@ import { forkJoin, from, Observable, ReplaySubject, throwError } from 'rxjs';
 import { HttpClient } from '@angular/common/http';
 import { IModulesMap } from '@modules/common/modules-map.models';
 import { TbResourceId } from '@shared/models/id/tb-resource-id';
-import { isObject } from '@core/utils';
+import { camelCase, isObject } from '@core/utils';
 import { AuthService } from '@core/auth/auth.service';
 import { select, Store } from '@ngrx/store';
 import { selectIsAuthenticated } from '@core/auth/auth.selectors';
@@ -39,6 +39,7 @@ import { AppState } from '@core/core.state';
 import { map, tap } from 'rxjs/operators';
 import { RequestConfig } from '@core/http/http-utils';
 import { getFlexLayoutModule } from '@app/shared/legacy/flex-layout.models';
+import { isJSResource, removeTbResourcePrefix } from '@shared/models/resource.models';
 
 export interface ModuleInfo {
   module: ɵNgModuleDef<any>;
@@ -49,6 +50,8 @@ export interface ModulesWithComponents {
   modules: ModuleInfo[];
   standaloneComponents: ɵComponentDef<any>[];
 }
+
+export type ComponentsSelectorMap<T> = Record<string, Type<T>>;
 
 export const flatModulesWithComponents = (modulesWithComponentsList: ModulesWithComponents[]): ModulesWithComponents => {
   const modulesWithComponents: ModulesWithComponents = {
@@ -89,6 +92,17 @@ export const componentTypeBySelector = (modulesWithComponents: ModulesWithCompon
 
 const matchesSelector = (selectors: ɵCssSelectorList, selector: string) =>
   selectors.some(s => s.some(s1 => typeof s1 === 'string' && s1 === selector));
+
+const extractSelectorFromComponent = (comp: ɵComponentDef<any>): string => {
+  for (const selectors of comp.selectors) {
+    for (const selector of selectors) {
+      if (typeof selector === 'string') {
+        return selector;
+      }
+    }
+  }
+  return null;
+}
 
 @Injectable({
   providedIn: 'root'
@@ -251,6 +265,27 @@ export class ResourcesService {
     );
   }
 
+  public extractComponentsFromModule<T>(module: any, isCamelCaseSelector = false): ComponentsSelectorMap<T> {
+    const modulesWithComponents = this.extractModulesWithComponents(module);
+    const componentMap: ComponentsSelectorMap<T> = {};
+
+    const processComponents = (components: Array<ɵComponentDef<T>>) => {
+      components.forEach(item => {
+        let selector = extractSelectorFromComponent(item);
+        if (isCamelCaseSelector) {
+          selector = camelCase(selector);
+        }
+        componentMap[selector] = item.type;
+      });
+    };
+
+    processComponents(modulesWithComponents.standaloneComponents);
+
+    modulesWithComponents.modules.forEach(module => {
+      processComponents(module.components);
+    })
+    return componentMap;
+  }
 
   private extractModulesWithComponents(module: any,
                                        modulesWithComponents: ModulesWithComponents = {
@@ -283,7 +318,7 @@ export class ResourcesService {
               modulesWithComponents.standaloneComponents.push(component);
             }
           } else {
-            this.extractModulesWithComponents(module, modulesWithComponents, visitedModules);
+            this.extractModulesWithComponents(element, modulesWithComponents, visitedModules);
           }
         }
       } else if (ɵNG_COMP_DEF in module) {
@@ -377,11 +412,11 @@ export class ResourcesService {
     if (isObject(resourceId)) {
       return `/api/resource/js/${(resourceId as TbResourceId).id}/download`;
     }
-    return resourceId as string;
+    return removeTbResourcePrefix(resourceId as string);
   }
 
   private getMetaInfo(resourceId: string | TbResourceId): object {
-    if (isObject(resourceId)) {
+    if (isObject(resourceId) || (typeof resourceId === 'string' && isJSResource(resourceId))) {
       return {
         additionalHeaders: {
           'X-Authorization': `Bearer ${AuthService.getJwtToken()}`
