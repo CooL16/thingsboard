@@ -1,0 +1,27 @@
+name: build
+
+on:
+  pull_request:
+    branches: [ "master" ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout Project Sources
+        uses: actions/checkout@v4.2.2
+
+      - name: Set Up JDK
+        uses: actions/setup-java@v4.7.0
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build Project
+        run: mvn clean install
