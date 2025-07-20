@@ -139,6 +139,7 @@ export const HelpLinks = {
     ruleNodeSaveToCustomTable: `${helpBaseUrl}/docs${docPlatformPrefix}/user-guide/rule-engine-2-0/action-nodes/#save-to-custom-table`,
     ruleNodeRuleChain: `${helpBaseUrl}/docs${docPlatformPrefix}/user-guide/rule-engine-2-0/flow-nodes/#rule-chain-node`,
     ruleNodeOutputNode: `${helpBaseUrl}/docs${docPlatformPrefix}/user-guide/rule-engine-2-0/flow-nodes/#output-node`,
+    ruleNodeAiRequest: `${helpBaseUrl}/docs${docPlatformPrefix}/user-guide/rule-engine-2-0/external-nodes/#ai-request-node`,
     ruleNodeAwsLambda: `${helpBaseUrl}/docs${docPlatformPrefix}/user-guide/rule-engine-2-0/external-nodes/#aws-lambda-node`,
     ruleNodeAwsSns: `${helpBaseUrl}/docs${docPlatformPrefix}/user-guide/rule-engine-2-0/external-nodes/#aws-sns-node`,
     ruleNodeAwsSqs: `${helpBaseUrl}/docs${docPlatformPrefix}/user-guide/rule-engine-2-0/external-nodes/#aws-sqs-node`,
@@ -200,6 +201,7 @@ export const HelpLinks = {
     mobileBundle: `${helpBaseUrl}/docs${docPlatformPrefix}/mobile-center/mobile-center/`,
     mobileQrCode: `${helpBaseUrl}/docs${docPlatformPrefix}/user-guide/ui/mobile-qr-code/`,
     calculatedField: `${helpBaseUrl}/docs${docPlatformPrefix}/user-guide/calculated-fields/`,
+    aiModels: `${helpBaseUrl}/docs${docPlatformPrefix}/ai-models`,
     timewindowSettings: `${helpBaseUrl}/docs${docPlatformPrefix}/user-guide/dashboards/#time-window`,
     trendzSettings: `${helpBaseUrl}/docs/trendz/`
   }
